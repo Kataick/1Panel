@@ -3,6 +3,7 @@ import { ResPage, ReqPage } from '../interface';
 import { Runtime } from '../interface/runtime';
 import { TimeoutEnum } from '@/enums/http-enum';
 import { App } from '@/api/interface/app';
+import { File } from '../interface/file';
 
 export const SearchRuntimes = (req: Runtime.RuntimeReq) => {
     return http.post<ResPage<Runtime.RuntimeDTO>>(`/runtimes/search`, req);
@@ -66,4 +67,40 @@ export const DeletePHPExtensions = (req: Runtime.PHPExtensionsDelete) => {
 
 export const SyncRuntime = () => {
     return http.post(`/runtimes/sync`, {});
+};
+
+export const GetPHPExtensions = (id: number) => {
+    return http.get<Runtime.PHPExtensionsRes>(`/runtimes/php/${id}/extensions`);
+};
+
+export const InstallPHPExtension = (req: Runtime.PHPExtensionInstall) => {
+    return http.post(`/runtimes/php/extensions/install`, req);
+};
+
+export const UnInstallPHPExtension = (req: Runtime.PHPExtensionInstall) => {
+    return http.post(`/runtimes/php/extensions/uninstall`, req);
+};
+
+export const GetPHPConfig = (id: number) => {
+    return http.get<Runtime.PHPConfig>(`/runtimes/php/config/${id}`);
+};
+
+export const UpdatePHPConfig = (req: Runtime.PHPConfigUpdate) => {
+    return http.post<any>(`/runtimes/php/config/`, req);
+};
+
+export const UpdatePHPFile = (req: Runtime.PHPUpdate) => {
+    return http.post<any>(`/runtimes/php/update`, req);
+};
+
+export const GetPHPConfigFile = (req: Runtime.PHPFileReq) => {
+    return http.post<File.File>(`/runtimes/php/file`, req);
+};
+
+export const UpdateFPMConfig = (req: Runtime.FPMConfig) => {
+    return http.post(`/runtimes/php/fpm/config`, req);
+};
+
+export const GetFPMConfig = (id: number) => {
+    return http.get<Runtime.FPMConfig>(`/runtimes/php/fpm/config/${id}`);
 };

@@ -13,7 +13,7 @@ func (r *RuntimeRouter) InitRouter(Router *gin.RouterGroup) {
 
 	baseApi := v2.ApiGroupApp.BaseApi
 	{
-		groupRouter.GET("/installed/delete/check/:runTimeId", baseApi.DeleteRuntimeCheck)
+		groupRouter.GET("/installed/delete/check/:id", baseApi.DeleteRuntimeCheck)
 		groupRouter.POST("/search", baseApi.SearchRuntimes)
 		groupRouter.POST("", baseApi.CreateRuntime)
 		groupRouter.POST("/del", baseApi.DeleteRuntime)
@@ -30,6 +30,16 @@ func (r *RuntimeRouter) InitRouter(Router *gin.RouterGroup) {
 		groupRouter.POST("/php/extensions", baseApi.CreatePHPExtensions)
 		groupRouter.POST("/php/extensions/update", baseApi.UpdatePHPExtensions)
 		groupRouter.POST("/php/extensions/del", baseApi.DeletePHPExtensions)
-	}
 
+		groupRouter.GET("/php/:id/extensions", baseApi.GetRuntimeExtension)
+		groupRouter.POST("/php/extensions/install", baseApi.InstallPHPExtension)
+		groupRouter.POST("/php/extensions/uninstall", baseApi.UnInstallPHPExtension)
+
+		groupRouter.GET("/php/config/:id", baseApi.GetPHPConfig)
+		groupRouter.POST("/php/config", baseApi.UpdatePHPConfig)
+		groupRouter.POST("/php/update", baseApi.UpdatePHPFile)
+		groupRouter.POST("/php/file", baseApi.GetPHPConfigFile)
+		groupRouter.POST("/php/fpm/config", baseApi.UpdateFPMConfig)
+		groupRouter.GET("/php/fpm/config/:id", baseApi.GetFPMConfig)
+	}
 }

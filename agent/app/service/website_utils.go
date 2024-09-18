@@ -42,15 +42,11 @@ func handleChineseDomain(domain string) (string, error) {
 }
 
 func createIndexFile(website *model.Website, runtime *model.Runtime) error {
-	nginxInstall, err := getAppInstallByKey(constant.AppOpenresty)
-	if err != nil {
-		return err
-	}
 	var (
 		indexPath      string
 		indexContent   string
 		websiteService = NewIWebsiteService()
-		indexFolder    = path.Join(nginxInstall.GetPath(), "www", "sites", website.Alias, "index")
+		indexFolder    = GetSitePath(*website, SiteIndexDir)
 	)
 
 	switch website.Type {
@@ -132,9 +128,8 @@ func createProxyFile(website *model.Website) error {
 	return nil
 }
 
-func createWebsiteFolder(nginxInstall model.AppInstall, website *model.Website, runtime *model.Runtime) error {
-	nginxFolder := path.Join(constant.AppInstallDir, constant.AppOpenresty, nginxInstall.Name)
-	siteFolder := path.Join(nginxFolder, "www", "sites", website.Alias)
+func createWebsiteFolder(website *model.Website, runtime *model.Runtime) error {
+	siteFolder := GteSiteDir(website.Alias)
 	fileOp := files.NewFileOp()
 	if !fileOp.Stat(siteFolder) {
 		if err := fileOp.CreateDir(siteFolder, 0755); err != nil {
@@ -185,11 +180,10 @@ func configDefaultNginx(website *model.Website, domains []model.WebsiteDomain, a
 	if err != nil {
 		return err
 	}
-	if err = createWebsiteFolder(nginxInstall, website, runtime); err != nil {
+	if err = createWebsiteFolder(website, runtime); err != nil {
 		return err
 	}
-	nginxFileName := website.Alias + ".conf"
-	configPath := path.Join(constant.AppInstallDir, constant.AppOpenresty, nginxInstall.Name, "conf", "conf.d", nginxFileName)
+	configPath := GetSitePath(*website, SiteConf)
 	nginxContent := string(nginx_conf.WebsiteDefault)
 	config, err := parser.NewStringParser(nginxContent).Parse()
 	if err != nil {
@@ -204,10 +198,7 @@ func configDefaultNginx(website *model.Website, domains []model.WebsiteDomain, a
 	var serverNames []string
 	for _, domain := range domains {
 		serverNames = append(serverNames, domain.Domain)
-		server.UpdateListen(strconv.Itoa(domain.Port), false)
-		if website.IPV6 {
-			server.UpdateListen("[::]:"+strconv.Itoa(domain.Port), false)
-		}
+		setListen(server, strconv.Itoa(domain.Port), website.IPV6, false, website.DefaultServer, false)
 	}
 	server.UpdateServerName(serverNames)
 
@@ -232,7 +223,7 @@ func configDefaultNginx(website *model.Website, domains []model.WebsiteDomain, a
 			server.UpdateDirective("error_page", []string{"404", "/404.html"})
 			if runtime.Resource == constant.ResourceLocal {
 				server.UpdateRoot(rootIndex)
-				localPath := path.Join(nginxInstall.GetPath(), rootIndex, "index.php")
+				localPath := path.Join(GetSitePath(*website, SiteIndexDir), "index.php")
 				server.UpdatePHPProxy([]string{website.Proxy}, localPath)
 			} else {
 				server.UpdateRoot(rootIndex)
@@ -381,6 +372,21 @@ func createWafConfig(website *model.Website, domains []model.WebsiteDomain) erro
 }
 
 func delNginxConfig(website model.Website, force bool) error {
+	configPath := GetSitePath(website, SiteConf)
+	fileOp := files.NewFileOp()
+
+	if !fileOp.Stat(configPath) {
+		return nil
+	}
+	if err := fileOp.DeleteFile(configPath); err != nil {
+		return err
+	}
+	sitePath := GteSiteDir(website.Alias)
+	if fileOp.Stat(sitePath) {
+		xpack.RemoveTamper(website.Alias)
+		_ = fileOp.DeleteDir(sitePath)
+	}
+
 	nginxApp, err := appRepo.GetFirst(appRepo.WithKey(constant.AppOpenresty))
 	if err != nil {
 		return err
@@ -392,23 +398,6 @@ func delNginxConfig(website model.Website, force bool) error {
 		}
 		return err
 	}
-
-	nginxFileName := website.Alias + ".conf"
-	configPath := path.Join(constant.AppInstallDir, constant.AppOpenresty, nginxInstall.Name, "conf", "conf.d", nginxFileName)
-	fileOp := files.NewFileOp()
-
-	if !fileOp.Stat(configPath) {
-		return nil
-	}
-	if err := fileOp.DeleteFile(configPath); err != nil {
-		return err
-	}
-	sitePath := path.Join(constant.AppInstallDir, constant.AppOpenresty, nginxInstall.Name, "www", "sites", website.Alias)
-	if fileOp.Stat(sitePath) {
-		xpack.RemoveTamper(website.Alias)
-		_ = fileOp.DeleteDir(sitePath)
-	}
-
 	if err := opNginx(nginxInstall.ContainerName, constant.NginxReload); err != nil {
 		if force {
 			return nil
@@ -471,6 +460,17 @@ func delWafConfig(website model.Website, force bool) error {
 	return nil
 }
 
+func isHttp3(server *components.Server) bool {
+	for _, listen := range server.Listens {
+		for _, param := range listen.Parameters {
+			if param == "quic" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func addListenAndServerName(website model.Website, domains []model.WebsiteDomain) error {
 	nginxFull, err := getNginxFull(&website)
 	if err != nil {
@@ -479,16 +479,10 @@ func addListenAndServerName(website model.Website, domains []model.WebsiteDomain
 	nginxConfig := nginxFull.SiteConfig
 	config := nginxFull.SiteConfig.Config
 	server := config.FindServers()[0]
+	http3 := isHttp3(server)
 
 	for _, domain := range domains {
-		var params []string
-		if website.Protocol == constant.ProtocolHTTPS && domain.SSL {
-			params = append(params, "ssl", "http2")
-		}
-		server.UpdateListen(strconv.Itoa(domain.Port), false, params...)
-		if website.IPV6 {
-			server.UpdateListen("[::]:"+strconv.Itoa(domain.Port), false, params...)
-		}
+		setListen(server, strconv.Itoa(domain.Port), website.IPV6, http3, website.DefaultServer, website.Protocol == constant.ProtocolHTTPS && domain.SSL)
 		server.UpdateServerName([]string{domain.Domain})
 	}
 
@@ -520,6 +514,24 @@ func deleteListenAndServerName(website model.Website, binds []string, domains []
 	return nginxCheckAndReload(nginxConfig.OldContent, nginxConfig.FilePath, nginxFull.Install.ContainerName)
 }
 
+func setListen(server *components.Server, port string, ipv6, http3, defaultServer, ssl bool) {
+	var params []string
+	if ssl {
+		params = []string{"ssl"}
+	}
+	server.UpdateListen(port, defaultServer, params...)
+	if ssl && http3 {
+		server.UpdateListen(port, defaultServer, "quic")
+	}
+	if !ipv6 {
+		return
+	}
+	server.UpdateListen("[::]:"+port, defaultServer, params...)
+	if ssl && http3 {
+		server.UpdateListen("[::]:"+port, defaultServer, "quic")
+	}
+}
+
 func removeSSLListen(website model.Website, binds []string) error {
 	nginxFull, err := getNginxFull(&website)
 	if err != nil {
@@ -528,11 +540,13 @@ func removeSSLListen(website model.Website, binds []string) error {
 	nginxConfig := nginxFull.SiteConfig
 	config := nginxFull.SiteConfig.Config
 	server := config.FindServers()[0]
+	http3 := isHttp3(server)
 	for _, bind := range binds {
-		server.UpdateListen(bind, false)
+		server.DeleteListen(bind)
 		if website.IPV6 {
-			server.UpdateListen("[::]:"+bind, false)
+			server.DeleteListen("[::]:" + bind)
 		}
+		setListen(server, bind, website.IPV6, http3, website.DefaultServer, website.Protocol == constant.ProtocolHTTPS)
 	}
 	if err := nginx.WriteConfig(config, nginx.IndentedStyle); err != nil {
 		return err
@@ -541,16 +555,7 @@ func removeSSLListen(website model.Website, binds []string) error {
 }
 
 func createPemFile(website model.Website, websiteSSL model.WebsiteSSL) error {
-	nginxApp, err := appRepo.GetFirst(appRepo.WithKey(constant.AppOpenresty))
-	if err != nil {
-		return err
-	}
-	nginxInstall, err := appInstallRepo.GetFirst(appInstallRepo.WithAppId(nginxApp.ID))
-	if err != nil {
-		return err
-	}
-
-	configDir := path.Join(constant.AppInstallDir, constant.AppOpenresty, nginxInstall.Name, "www", "sites", website.Alias, "ssl")
+	configDir := GetSitePath(website, SiteSSLDir)
 	fileOp := files.NewFileOp()
 
 	if !fileOp.Stat(configDir) {
@@ -626,12 +631,10 @@ func applySSL(website *model.Website, websiteSSL model.WebsiteSSL, req request.W
 	httpPortIPV6 := "[::]:" + httpPort
 
 	for _, port := range httpsPort {
-		httpsPortIPV6 := "[::]:" + strconv.Itoa(port)
-		server.UpdateListen(strconv.Itoa(port), website.DefaultServer, "ssl", "http2")
-		if website.IPV6 {
-			server.UpdateListen(httpsPortIPV6, website.DefaultServer, "ssl", "http2")
-		}
+		setListen(server, strconv.Itoa(port), website.IPV6, req.Http3, website.DefaultServer, true)
 	}
+
+	server.UpdateDirective("http2", []string{"on"})
 
 	switch req.HttpConfig {
 	case constant.HTTPSOnly:
@@ -659,11 +662,21 @@ func applySSL(website *model.Website, websiteSSL model.WebsiteSSL, req request.W
 	if !req.Hsts {
 		server.RemoveDirective("add_header", []string{"Strict-Transport-Security", "\"max-age=31536000\""})
 	}
+	if !req.Http3 {
+		for _, port := range httpsPort {
+			server.RemoveListen(strconv.Itoa(port), "quic")
+			if website.IPV6 {
+				httpsPortIPV6 := "[::]:" + strconv.Itoa(port)
+				server.RemoveListen(httpsPortIPV6, "quic")
+			}
+		}
+		server.RemoveDirective("add_header", []string{"Alt-Svc"})
+	}
 
-	if err := nginx.WriteConfig(config, nginx.IndentedStyle); err != nil {
+	if err = nginx.WriteConfig(config, nginx.IndentedStyle); err != nil {
 		return err
 	}
-	if err := createPemFile(*website, websiteSSL); err != nil {
+	if err = createPemFile(*website, websiteSSL); err != nil {
 		return err
 	}
 	nginxParams := getNginxParamsFromStaticFile(dto.SSL, []dto.NginxParam{})
@@ -685,6 +698,12 @@ func applySSL(website *model.Website, websiteSSL model.WebsiteSSL, req request.W
 		nginxParams = append(nginxParams, dto.NginxParam{
 			Name:   "add_header",
 			Params: []string{"Strict-Transport-Security", "\"max-age=31536000\""},
+		})
+	}
+	if req.Http3 {
+		nginxParams = append(nginxParams, dto.NginxParam{
+			Name:   "add_header",
+			Params: []string{"Alt-Svc", "'h3=\":443\"; ma=2592000'"},
 		})
 	}
 
@@ -1159,4 +1178,77 @@ func getResourceContent(fileOp files.FileOp, resourcePath string) (string, error
 		return string(content), nil
 	}
 	return "", nil
+}
+
+func GetWebSiteRootDir() string {
+	siteSetting, _ := settingRepo.Get(settingRepo.WithByKey("WEBSITE_DIR"))
+	dir := siteSetting.Value
+	if dir == "" {
+		dir = path.Join(constant.DataDir, "www")
+	}
+	return dir
+}
+
+func GteSiteDir(alias string) string {
+	return path.Join(GetWebSiteRootDir(), "sites", alias)
+}
+
+const (
+	SiteConf        = "SiteConf"
+	SiteAccessLog   = "access.log"
+	SiteErrorLog    = "error.log"
+	WebsiteRootDir  = "WebsiteRootDir"
+	SiteDir         = "SiteDir"
+	SiteIndexDir    = "SiteIndexDir"
+	SiteProxyDir    = "SiteProxyDir"
+	SiteSSLDir      = "SiteSSLDir"
+	SiteReWritePath = "SiteReWritePath"
+	SiteRedirectDir = "SiteRedirectDir"
+	SiteCacheDir    = "SiteCacheDir"
+)
+
+func GetSitePath(website model.Website, confType string) string {
+	switch confType {
+	case SiteConf:
+		return path.Join(GetWebSiteRootDir(), "conf.d", website.Alias+".conf")
+	case SiteAccessLog:
+		return path.Join(GteSiteDir(website.Alias), "log", "access.log")
+	case SiteErrorLog:
+		return path.Join(GteSiteDir(website.Alias), "log", "error.log")
+	case WebsiteRootDir:
+		return GetWebSiteRootDir()
+	case SiteDir:
+		return GteSiteDir(website.Alias)
+	case SiteIndexDir:
+		return path.Join(GteSiteDir(website.Alias), "index")
+	case SiteCacheDir:
+		return path.Join(GteSiteDir(website.Alias), "cache")
+	case SiteProxyDir:
+		return path.Join(GteSiteDir(website.Alias), "proxy")
+	case SiteSSLDir:
+		return path.Join(GteSiteDir(website.Alias), "ssl")
+	case SiteReWritePath:
+		return path.Join(GteSiteDir(website.Alias), "rewrite", website.Alias+".conf")
+	case SiteRedirectDir:
+		return path.Join(GteSiteDir(website.Alias), "redirect")
+
+	}
+	return ""
+}
+
+func openProxyCache(website model.Website) error {
+	cacheDir := GetSitePath(website, SiteCacheDir)
+	fileOp := files.NewFileOp()
+	if !fileOp.Stat(cacheDir) {
+		_ = fileOp.CreateDir(cacheDir, 0755)
+	}
+	content, err := fileOp.GetContent(GetSitePath(website, SiteConf))
+	if err != nil {
+		return err
+	}
+	if strings.Contains(string(content), "proxy_cache_path") {
+		return nil
+	}
+	proxyCachePath := fmt.Sprintf("/www/sites/%s/cache levels=1:2 keys_zone=proxy_cache_zone_of_%s:5m max_size=1g inactive=24h", website.Alias, website.Alias)
+	return updateNginxConfig("", []dto.NginxParam{{Name: "proxy_cache_path", Params: []string{proxyCachePath}}}, &website)
 }

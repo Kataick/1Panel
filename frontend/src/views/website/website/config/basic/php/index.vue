@@ -3,8 +3,12 @@
         <el-row>
             <el-col :xs="20" :sm="12" :md="10" :lg="10" :xl="8" :offset="1">
                 <el-form>
-                    <el-form-item :label="$t('runtime.version')">
+                    <div v-if="website.type === 'static'">
+                        <el-text type="info">{{ $t('website.staticChangePHPHelper') }}</el-text>
+                    </div>
+                    <el-form-item :label="$t('website.changeVersion')">
                         <el-select v-model="versionReq.runtimeID" style="width: 100%">
+                            <el-option :key="-1" :label="$t('website.static')" :value="0"></el-option>
                             <el-option
                                 v-for="(item, index) in versions"
                                 :key="index"
@@ -14,15 +18,11 @@
                         </el-select>
                     </el-form-item>
                     <el-form-item>
-                        <el-checkbox v-model="versionReq.retainConfig" :label="'保留PHP配置文件'" />
-                        <span class="input-help">
-                            {{ $t('website.retainConfig') }}
-                        </span>
+                        <el-button type="primary" @click="submit()" :disabled="versionReq.runtimeID === oldRuntimeID">
+                            {{ $t('commons.button.save') }}
+                        </el-button>
                     </el-form-item>
                 </el-form>
-                <el-button type="primary" @click="submit()" :disabled="versionReq.runtimeID === oldRuntimeID">
-                    {{ $t('commons.button.save') }}
-                </el-button>
             </el-col>
         </el-row>
     </div>
@@ -37,13 +37,8 @@ import { ChangePHPVersion } from '@/api/modules/website';
 import i18n from '@/lang';
 import { MsgSuccess } from '@/utils/message';
 const props = defineProps({
-    id: {
-        type: Number,
-        default: 0,
-    },
-    runtimeID: {
-        type: Number,
-        default: 0,
+    website: {
+        type: Object,
     },
 });
 
@@ -51,7 +46,6 @@ const runtimeReq = reactive<Runtime.RuntimeReq>({ page: 1, pageSize: 200, type: 
 const versionReq = reactive<Website.PHPVersionChange>({
     websiteID: undefined,
     runtimeID: undefined,
-    retainConfig: true,
 });
 const versions = ref([]);
 const loading = ref(false);
@@ -65,17 +59,7 @@ const getRuntimes = async () => {
         for (const item of items) {
             versions.value.push({
                 value: item.id,
-                label:
-                    item.name +
-                    '（' +
-                    i18n.global.t('runtime.version') +
-                    '：' +
-                    item.version +
-                    +' ' +
-                    i18n.global.t('runtime.image') +
-                    '：' +
-                    item.image +
-                    '）',
+                label: item.name + ' [' + i18n.global.t('runtime.version') + ':' + item.params['PHP_VERSION'] + ']',
             });
         }
     } catch (error) {}
@@ -99,9 +83,9 @@ const submit = async () => {
 };
 
 onMounted(() => {
-    versionReq.runtimeID = props.runtimeID;
-    versionReq.websiteID = props.id;
-    oldRuntimeID.value = props.runtimeID;
+    versionReq.runtimeID = props.website.runtimeID;
+    versionReq.websiteID = props.website.id;
+    oldRuntimeID.value = props.website.runtimeID;
     getRuntimes();
 });
 </script>

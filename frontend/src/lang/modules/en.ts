@@ -152,6 +152,8 @@ const message = {
             rootInfoErr: "It's already the root directory",
             resetSuccess: 'Reset successful',
             creatingInfo: 'Creating, no need for this operation',
+            installSuccess: 'Install successful',
+            uninstallSuccess: 'Uninstall successful',
         },
         login: {
             username: 'Username',
@@ -1915,6 +1917,11 @@ const message = {
             'Please ensure the machine has an NVIDIA GPU and that NVIDIA drivers and the NVIDIA Docker Container Toolkit are installed',
         webUI: 'Web Access Address',
         webUIPlaceholder: 'For example: http://example.com:8080/login',
+        defaultWebDomain: 'Default Access Address',
+        defaultWebDomainHepler:
+            'The default access is used for application port forwarding. For example, if the application port is 8080, the forwarding address would be http(s)://default-access-address:8080',
+        webUIConfig: 'Please add the access address in the application parameters or the app store settings',
+        toLink: 'Open',
     },
     website: {
         website: 'Website',
@@ -2152,8 +2159,7 @@ const message = {
         notKeep: 'Do not keep',
         redirectRoot: 'Redirect to the homepage',
         redirectHelper: '301 permanent redirection, 302 temporary redirection',
-        changePHPVersionWarn:
-            'Switching the PHP version will delete the original PHP container (the website code that has been mounted will not be lost), continue? ',
+        changePHPVersionWarn: 'This operation cannot be rolled back, do you want to continue?',
         changeVersion: 'Switch version',
         retainConfig: 'Whether to keep php-fpm.conf and php.ini files',
         runDirHelper2: 'Please ensure that the secondary running directory is under the index directory',
@@ -2210,6 +2216,24 @@ const message = {
         strategy: 'Strategy',
         strategyDown: 'Down',
         strategyBackup: 'Backup',
+        staticChangePHPHelper: 'Currently a static website, you can switch to a PHP website',
+        proxyCache: 'Reverse Proxy Cache',
+        cacheLimit: 'Cache Space Limit',
+        shareCahe: 'Cache Count Memory Size',
+        cacheExpire: 'Cache Expiration Time',
+        shareCaheHelper: 'Approximately 8000 cache objects can be stored per 1M of memory',
+        cacheLimitHelper: 'Old cache will be automatically deleted when the limit is exceeded',
+        cacheExpireJHelper: 'Cache will be deleted if it misses after the expiration time',
+        realIP: 'Real IP',
+        ipFrom: 'IP Source',
+        ipFromHelper:
+            "By configuring trusted IP sources, OpenResty will analyze IP information in HTTP headers, accurately identify and record visitors' real IP addresses, including in access logs",
+        ipFromExample1: "If the frontend is a tool like Frp, you can enter Frp's IP address, such as 127.0.0.1",
+        ipFromExample2: "If the frontend is a CDN, you can enter the CDN's IP address range",
+        ipFromExample3:
+            'If unsure, you can enter 0.0.0.0/0 (ipv4) ::/0 (ipv6) [Note: Allowing any source IP is not secure]',
+        http3Helper:
+            'HTTP/3 is an upgrade to HTTP/2, offering faster connection speeds and better performance, but not all browsers support HTTP/3. Enabling it may cause some browsers to be unable to access the site.',
     },
     php: {
         short_open_tag: 'Short tag support',
@@ -2413,7 +2437,7 @@ const message = {
         version: 'Version',
         versionHelper: 'PHP version, e.g. v8.0',
         buildHelper:
-            'The more extensions you select, the more CPU will be occupied during the image making process, so avoid selecting all extensions,If there is no extension you want, you can manually enter it and select it',
+            'The more extensions you select, the more CPU will be used during the image creation process. You can install extensions after the environment is created.',
         openrestyWarn: 'PHP needs to be upgraded to OpenResty to version 1.21.4.1 or later to use',
         toupgrade: 'To Upgrade',
         edit: 'Edit runtime',
@@ -2459,6 +2483,27 @@ const message = {
         javaDirHelper: 'The directory must contain jar files, subdirectories are also acceptable',
         goHelper: 'Please provide a complete start command, for example: go run main.go or ./main',
         goDirHelper: 'The directory must contain go files or binary files, subdirectories are also acceptable',
+        extension: 'Extension',
+        installExtension: 'Do you confirm to install the extension {0}',
+        loadedExtension: 'Loaded Extension',
+        popularExtension: 'Popular Extension',
+        uninstallExtension: 'Are you sure you want to uninstall the extension {0}',
+        phpConfigHelper:
+            'Modifying the configuration requires restarting the operating environment, do you want to continue',
+        operateMode: 'operation mode',
+        dynamic: 'dynamic',
+        static: 'static',
+        ondemand: 'on-demand',
+        dynamicHelper:
+            'dynamically adjust the number of processes, high flexibility, suitable for websites with large traffic fluctuations or low memory',
+        staticHelper:
+            'fixed number of processes, suitable for websites with high concurrency and stable traffic, high resource consumption',
+        ondemandHelper:
+            'processes are started and destroyed on demand, resource utilization is optimal, but the initial response may be slow',
+        max_children: 'maximum number of processes allowed to be created',
+        start_servers: 'number of processes created at startup',
+        min_spare_servers: 'minimum number of idle processes',
+        max_spare_servers: 'maximum number of idle processes',
     },
     process: {
         pid: 'Process ID',

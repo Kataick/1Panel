@@ -296,6 +296,7 @@ export namespace Website {
         httpConfig: string;
         SSLProtocol: string[];
         algorithm: string;
+        http3: boolean;
     }
 
     export interface HTTPSConfig {
@@ -306,6 +307,7 @@ export namespace Website {
         algorithm: string;
         hsts: boolean;
         httpsPort?: string;
+        http3: boolean;
     }
 
     export interface CheckReq {
@@ -331,27 +333,6 @@ export namespace Website {
     export interface DefaultServerUpdate {
         id: number;
     }
-
-    export interface PHPConfig {
-        params: any;
-        disableFunctions: string[];
-        uploadMaxSize: string;
-    }
-
-    export interface PHPConfigUpdate {
-        id: number;
-        params?: any;
-        disableFunctions?: string[];
-        scope: string;
-        uploadMaxSize?: string;
-    }
-
-    export interface PHPUpdate {
-        id: number;
-        content: string;
-        type: string;
-    }
-
     export interface RewriteReq {
         websiteID: number;
         name: string;
@@ -493,7 +474,6 @@ export namespace Website {
     export interface PHPVersionChange {
         websiteID: number;
         runtimeID: number;
-        retainConfig: boolean;
     }
 
     export interface DirConfig {
@@ -609,5 +589,22 @@ export namespace Website {
         websiteID: number;
         name: string;
         content: string;
+    }
+
+    export interface WebsiteCacheConfig {
+        open: boolean;
+        cacheLimit: number;
+        cacheLimitUnit: string;
+        shareCache: number;
+        shareCacheUnit: string;
+        cacheExpire: number;
+        cacheExpireUnit: string;
+    }
+
+    export interface WebsiteRealIPConfig {
+        open: boolean;
+        ipFrom: string;
+        ipHeader: string;
+        ipOther: string;
     }
 }

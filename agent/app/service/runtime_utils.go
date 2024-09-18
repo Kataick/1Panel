@@ -1,8 +1,26 @@
 package service
 
 import (
+	"bufio"
 	"bytes"
+	"encoding/json"
 	"fmt"
+	"github.com/1Panel-dev/1Panel/agent/app/dto"
+	"github.com/1Panel-dev/1Panel/agent/app/dto/request"
+	"github.com/1Panel-dev/1Panel/agent/app/dto/response"
+	"github.com/1Panel-dev/1Panel/agent/app/model"
+	"github.com/1Panel-dev/1Panel/agent/buserr"
+	"github.com/1Panel-dev/1Panel/agent/cmd/server/nginx_conf"
+	"github.com/1Panel-dev/1Panel/agent/constant"
+	"github.com/1Panel-dev/1Panel/agent/global"
+	cmd2 "github.com/1Panel-dev/1Panel/agent/utils/cmd"
+	"github.com/1Panel-dev/1Panel/agent/utils/compose"
+	"github.com/1Panel-dev/1Panel/agent/utils/docker"
+	"github.com/1Panel-dev/1Panel/agent/utils/files"
+	httpUtil "github.com/1Panel-dev/1Panel/agent/utils/http"
+	"github.com/pkg/errors"
+	"github.com/subosito/gotenv"
+	"gopkg.in/yaml.v3"
 	"io"
 	"net/http"
 	"os"
@@ -11,18 +29,6 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-
-	"github.com/1Panel-dev/1Panel/agent/app/dto/request"
-	"github.com/1Panel-dev/1Panel/agent/app/model"
-	"github.com/1Panel-dev/1Panel/agent/buserr"
-	"github.com/1Panel-dev/1Panel/agent/constant"
-	"github.com/1Panel-dev/1Panel/agent/global"
-	"github.com/1Panel-dev/1Panel/agent/utils/docker"
-	"github.com/1Panel-dev/1Panel/agent/utils/files"
-	httpUtil "github.com/1Panel-dev/1Panel/agent/utils/http"
-	"github.com/pkg/errors"
-	"github.com/subosito/gotenv"
-	"gopkg.in/yaml.v3"
 )
 
 func handleNodeAndJava(create request.RuntimeCreate, runtime *model.Runtime, fileOp files.FileOp, appVersionDir string) (err error) {
@@ -66,30 +72,16 @@ func handleNodeAndJava(create request.RuntimeCreate, runtime *model.Runtime, fil
 }
 
 func handlePHP(create request.RuntimeCreate, runtime *model.Runtime, fileOp files.FileOp, appVersionDir string) (err error) {
-	buildDir := path.Join(appVersionDir, "build")
-	if !fileOp.Stat(buildDir) {
-		return buserr.New(constant.ErrDirNotFound)
-	}
 	runtimeDir := path.Join(constant.RuntimeDir, create.Type)
-	tempDir := filepath.Join(runtimeDir, fmt.Sprintf("%d", time.Now().UnixNano()))
-	if err = fileOp.CopyDir(buildDir, tempDir); err != nil {
+	if err = fileOp.CopyDirWithNewName(appVersionDir, runtimeDir, create.Name); err != nil {
 		return
 	}
-	oldDir := path.Join(tempDir, "build")
 	projectDir := path.Join(runtimeDir, create.Name)
 	defer func() {
 		if err != nil {
 			_ = fileOp.DeleteDir(projectDir)
 		}
 	}()
-	if oldDir != projectDir {
-		if err = fileOp.Rename(oldDir, projectDir); err != nil {
-			return
-		}
-		if err = fileOp.DeleteDir(tempDir); err != nil {
-			return
-		}
-	}
 	composeContent, envContent, forms, err := handleParams(create, projectDir)
 	if err != nil {
 		return
@@ -99,7 +91,7 @@ func handlePHP(create request.RuntimeCreate, runtime *model.Runtime, fileOp file
 	runtime.Params = string(forms)
 	runtime.Status = constant.RuntimeBuildIng
 
-	go buildRuntime(runtime, "", false)
+	go buildRuntime(runtime, "", "", false)
 	return
 }
 
@@ -140,11 +132,11 @@ func reCreateRuntime(runtime *model.Runtime) {
 }
 
 func runComposeCmdWithLog(operate string, composePath string, logPath string) error {
-	cmd := exec.Command("docker-compose", "-f", composePath, operate)
+	cmd := exec.Command("docker", "compose", "-f", composePath, operate)
 	if operate == "up" {
-		cmd = exec.Command("docker-compose", "-f", composePath, operate, "-d")
+		cmd = exec.Command("docker", "compose", "-f", composePath, operate, "-d")
 	}
-	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0666)
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
 	if err != nil {
 		global.LOG.Errorf("Failed to open log file: %v", err)
 		return err
@@ -158,7 +150,7 @@ func runComposeCmdWithLog(operate string, composePath string, logPath string) er
 
 	err = cmd.Run()
 	if err != nil {
-		return errors.New(buserr.New(constant.ErrRuntimeStart).Error() + ":" + stderrBuf.String())
+		return errors.New(buserr.New(constant.ErrRuntimeStart).Error() + ":" + err.Error())
 	}
 	return nil
 }
@@ -204,7 +196,18 @@ func SyncRuntimeContainerStatus(runtime *model.Runtime) error {
 	return runtimeRepo.Save(runtime)
 }
 
-func buildRuntime(runtime *model.Runtime, oldImageID string, rebuild bool) {
+func getRuntimeEnv(envStr, key string) string {
+	env, err := gotenv.Unmarshal(envStr)
+	if err != nil {
+		return ""
+	}
+	if v, ok := env[key]; ok {
+		return v
+	}
+	return ""
+}
+
+func buildRuntime(runtime *model.Runtime, oldImageID string, oldEnv string, rebuild bool) {
 	runtimePath := runtime.GetPath()
 	composePath := runtime.GetComposePath()
 	logPath := path.Join(runtimePath, "build.log")
@@ -218,19 +221,23 @@ func buildRuntime(runtime *model.Runtime, oldImageID string, rebuild bool) {
 		_ = logFile.Close()
 	}()
 
-	cmd := exec.Command("docker-compose", "-f", composePath, "build")
-	multiWriterStdout := io.MultiWriter(os.Stdout, logFile)
-	cmd.Stdout = multiWriterStdout
+	cmd := exec.Command("docker", "compose", "-f", composePath, "build")
+	cmd.Stdout = logFile
 	var stderrBuf bytes.Buffer
-	multiWriterStderr := io.MultiWriter(&stderrBuf, logFile, os.Stderr)
+	multiWriterStderr := io.MultiWriter(&stderrBuf, logFile)
 	cmd.Stderr = multiWriterStderr
 
 	err = cmd.Run()
 	if err != nil {
 		runtime.Status = constant.RuntimeError
 		runtime.Message = buserr.New(constant.ErrImageBuildErr).Error() + ":" + stderrBuf.String()
+		if stderrBuf.String() == "" {
+			runtime.Message = buserr.New(constant.ErrImageBuildErr).Error() + ":" + err.Error()
+		}
 	} else {
-		runtime.Status = constant.RuntimeNormal
+		if err = runComposeCmdWithLog(constant.RuntimeDown, runtime.GetComposePath(), runtime.GetLogPath()); err != nil {
+			return
+		}
 		runtime.Message = ""
 		if oldImageID != "" {
 			client, err := docker.NewClient()
@@ -250,27 +257,45 @@ func buildRuntime(runtime *model.Runtime, oldImageID string, rebuild bool) {
 			}
 		}
 		if rebuild && runtime.ID > 0 {
-			websites, _ := websiteRepo.GetBy(websiteRepo.WithRuntimeID(runtime.ID))
-			if len(websites) > 0 {
-				installService := NewIAppInstalledService()
-				installMap := make(map[uint]string)
-				for _, website := range websites {
-					if website.AppInstallID > 0 {
-						installMap[website.AppInstallID] = website.PrimaryDomain
+			extensionsStr := getRuntimeEnv(runtime.Env, "PHP_EXTENSIONS")
+			extensionsArray := strings.Split(extensionsStr, ",")
+			oldExtensionStr := getRuntimeEnv(oldEnv, "PHP_EXTENSIONS")
+			oldExtensionArray := strings.Split(oldExtensionStr, ",")
+			var delExtensions []string
+			for _, oldExt := range oldExtensionArray {
+				exist := false
+				for _, ext := range extensionsArray {
+					if oldExt == ext {
+						exist = true
+						break
 					}
 				}
-				for installID, domain := range installMap {
-					go func(installID uint, domain string) {
-						global.LOG.Infof("rebuild php runtime [%s] domain [%s]", runtime.Name, domain)
-						if err := installService.Operate(request.AppInstalledOperate{
-							InstallId: installID,
-							Operate:   constant.Rebuild,
-						}); err != nil {
-							global.LOG.Errorf("rebuild php runtime [%s] domain [%s] error %v", runtime.Name, domain, err)
-						}
-					}(installID, domain)
+				if !exist {
+					delExtensions = append(delExtensions, oldExt)
 				}
 			}
+
+			if err = unInstallPHPExtension(runtime, delExtensions); err != nil {
+				global.LOG.Errorf("unInstallPHPExtension error %v", err)
+			}
+		}
+
+		if out, err := compose.Up(composePath); err != nil {
+			runtime.Status = constant.RuntimeStartErr
+			runtime.Message = out
+		} else {
+			extensions := getRuntimeEnv(runtime.Env, "PHP_EXTENSIONS")
+			if extensions != "" {
+				installCmd := fmt.Sprintf("docker exec -i %s %s %s", runtime.ContainerName, "install-ext", extensions)
+				err = cmd2.ExecWithLogFile(installCmd, 60*time.Minute, logPath)
+				if err != nil {
+					runtime.Status = constant.RuntimeError
+					runtime.Message = buserr.New(constant.ErrImageBuildErr).Error() + ":" + err.Error()
+					_ = runtimeRepo.Save(runtime)
+					return
+				}
+			}
+			runtime.Status = constant.RuntimeRunning
 		}
 	}
 	_ = runtimeRepo.Save(runtime)
@@ -293,7 +318,20 @@ func handleParams(create request.RuntimeCreate, projectDir string) (composeConte
 	switch create.Type {
 	case constant.RuntimePHP:
 		create.Params["IMAGE_NAME"] = create.Image
-		forms, err = fileOp.GetContent(path.Join(projectDir, "config.json"))
+		var fromYml []byte
+		fromYml, err = fileOp.GetContent(path.Join(projectDir, "data.yml"))
+		if err != nil {
+			return
+		}
+		var data dto.PHPForm
+		err = yaml.Unmarshal(fromYml, &data)
+		if err != nil {
+			return
+		}
+		formFields := data.AdditionalProperties.FormFields
+		forms, err = json.MarshalIndent(map[string]interface{}{
+			"formFields": formFields,
+		}, "", "  ")
 		if err != nil {
 			return
 		}
@@ -307,6 +345,8 @@ func handleParams(create request.RuntimeCreate, projectDir string) (composeConte
 			}
 		}
 		create.Params["CONTAINER_PACKAGE_URL"] = create.Source
+		siteDir, _ := settingRepo.Get(settingRepo.WithByKey("WEBSITE_DIR"))
+		create.Params["PANEL_WEBSITE_DIR"] = siteDir.Value
 	case constant.RuntimeNode:
 		create.Params["CODE_DIR"] = create.CodeDir
 		create.Params["NODE_VERSION"] = create.Version
@@ -433,4 +473,96 @@ func checkContainerName(name string) error {
 		return buserr.New(constant.ErrContainerName)
 	}
 	return nil
+}
+
+func unInstallPHPExtension(runtime *model.Runtime, delExtensions []string) error {
+	dir := runtime.GetPath()
+	fileOP := files.NewFileOp()
+	var phpExtensions []response.SupportExtension
+	if err := json.Unmarshal(nginx_conf.PHPExtensionsJson, &phpExtensions); err != nil {
+		return err
+	}
+	delMap := make(map[string]struct{})
+	for _, ext := range phpExtensions {
+		for _, del := range delExtensions {
+			if ext.Check == del {
+				delMap[ext.Check] = struct{}{}
+				_ = fileOP.DeleteFile(path.Join(dir, "extensions", ext.File))
+				_ = fileOP.DeleteFile(path.Join(dir, "conf", "conf.d", "docker-php-ext-"+ext.Check+".ini"))
+				_ = removePHPIniExt(path.Join(dir, "conf", "php.ini"), ext.File)
+				break
+			}
+		}
+	}
+	extensions := getRuntimeEnv(runtime.Env, "PHP_EXTENSIONS")
+	var (
+		oldExts []string
+		newExts []string
+	)
+	oldExts = strings.Split(extensions, ",")
+	for _, ext := range oldExts {
+		if _, ok := delMap[ext]; !ok {
+			newExts = append(newExts, ext)
+		}
+	}
+	newExtensions := strings.Join(newExts, ",")
+	envs, err := gotenv.Unmarshal(runtime.Env)
+	if err != nil {
+		return err
+	}
+	envs["PHP_EXTENSIONS"] = newExtensions
+	if err = gotenv.Write(envs, runtime.GetEnvPath()); err != nil {
+		return err
+	}
+	envContent, err := gotenv.Marshal(envs)
+	if err != nil {
+		return err
+	}
+	runtime.Env = envContent
+	return nil
+}
+
+func removePHPIniExt(filePath, extensionName string) error {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	targetLine1 := `extension="` + extensionName + `"`
+	targetLine2 := `zend_extension="` + extensionName + `"`
+
+	tempFile, err := os.CreateTemp(path.Dir(filePath), "temp_*.txt")
+	if err != nil {
+		return err
+	}
+	defer tempFile.Close()
+
+	scanner := bufio.NewScanner(file)
+	writer := bufio.NewWriter(tempFile)
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.Contains(line, targetLine1) && !strings.Contains(line, targetLine2) {
+			_, err := writer.WriteString(line + "\n")
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return err
+	}
+
+	return os.Rename(tempFile.Name(), filePath)
+}
+
+func restartRuntime(runtime *model.Runtime) (err error) {
+	if err = runComposeCmdWithLog(constant.RuntimeDown, runtime.GetComposePath(), runtime.GetLogPath()); err != nil {
+		return
+	}
+	if err = runComposeCmdWithLog(constant.RuntimeUp, runtime.GetComposePath(), runtime.GetLogPath()); err != nil {
+		return
+	}
+	return
 }

@@ -70,3 +70,33 @@ type NodeModuleOperateReq struct {
 type NodeModuleReq struct {
 	ID uint `json:"ID" validate:"required"`
 }
+
+type PHPExtensionInstallReq struct {
+	ID     uint   `json:"ID" validate:"required"`
+	Name   string `json:"name" validate:"required"`
+	TaskID string `json:"taskID"`
+}
+
+type PHPConfigUpdate struct {
+	ID               uint              `json:"id" validate:"required"`
+	Params           map[string]string `json:"params"`
+	Scope            string            `json:"scope" validate:"required"`
+	DisableFunctions []string          `json:"disableFunctions"`
+	UploadMaxSize    string            `json:"uploadMaxSize"`
+}
+
+type PHPFileUpdate struct {
+	ID      uint   `json:"id" validate:"required"`
+	Type    string `json:"type" validate:"required"`
+	Content string `json:"content" validate:"required"`
+}
+
+type PHPFileReq struct {
+	ID   uint   `json:"id" validate:"required"`
+	Type string `json:"type" validate:"required"`
+}
+
+type FPMConfig struct {
+	ID     uint                   `json:"id" validate:"required"`
+	Params map[string]interface{} `json:"params" validate:"required"`
+}

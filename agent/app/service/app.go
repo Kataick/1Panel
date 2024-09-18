@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"reflect"
 	"strconv"
@@ -45,6 +46,9 @@ type IAppService interface {
 	GetAppDetailByID(id uint) (*response.AppDetailDTO, error)
 	SyncAppListFromLocal(taskID string)
 	GetIgnoredApp() ([]response.IgnoredApp, error)
+
+	GetAppstoreConfig() (*response.AppstoreConfig, error)
+	UpdateAppstoreConfig(req request.AppstoreUpdate) error
 }
 
 func NewIAppService() IAppService {
@@ -65,6 +69,10 @@ func (a AppService) PageApp(req request.AppSearch) (interface{}, error) {
 	}
 	if req.Resource != "" && req.Resource != "all" {
 		opts = append(opts, appRepo.WithResource(req.Resource))
+	}
+	if req.Type == "php" {
+		info, _ := NewISettingService().GetSettingInfo()
+		opts = append(opts, appRepo.WithPanelVersion(info.SystemVersion))
 	}
 	if req.ShowCurrentArch {
 		info, err := NewIDashboardService().LoadOsInfo()
@@ -198,23 +206,22 @@ func (a AppService) GetAppDetail(appID uint, version, appType string) (response.
 		}
 		switch app.Type {
 		case constant.RuntimePHP:
-			buildPath := filepath.Join(versionPath, "build")
-			paramsPath := filepath.Join(buildPath, "config.json")
+			paramsPath := filepath.Join(versionPath, "data.yml")
 			if !fileOp.Stat(paramsPath) {
-				return appDetailDTO, buserr.New(constant.ErrFileNotExist)
+				return appDetailDTO, buserr.WithDetail(constant.ErrFileNotExist, paramsPath, nil)
 			}
 			param, err := fileOp.GetContent(paramsPath)
 			if err != nil {
 				return appDetailDTO, err
 			}
 			paramMap := make(map[string]interface{})
-			if err := json.Unmarshal(param, &paramMap); err != nil {
+			if err = yaml.Unmarshal(param, &paramMap); err != nil {
 				return appDetailDTO, err
 			}
-			appDetailDTO.Params = paramMap
-			composePath := filepath.Join(buildPath, "docker-compose.yml")
+			appDetailDTO.Params = paramMap["additionalProperties"]
+			composePath := filepath.Join(versionPath, "docker-compose.yml")
 			if !fileOp.Stat(composePath) {
-				return appDetailDTO, buserr.New(constant.ErrFileNotExist)
+				return appDetailDTO, buserr.WithDetail(constant.ErrFileNotExist, composePath, nil)
 			}
 			compose, err := fileOp.GetContent(composePath)
 			if err != nil {
@@ -332,6 +339,16 @@ func (a AppService) Install(req request.AppInstallCreate) (appInstall *model.App
 		if existDatabases, _ := databaseRepo.GetList(commonRepo.WithByName(req.Name)); len(existDatabases) > 0 {
 			err = buserr.New(constant.ErrRemoteExist)
 			return
+		}
+	}
+	if app.Key == "openresty" && app.Resource == "remote" && common.CompareVersion(appDetail.Version, "1.21.4.3-3-3") {
+		if dir, ok := req.Params["WEBSITE_DIR"]; ok {
+			siteDir := dir.(string)
+			if siteDir == "" || !strings.HasPrefix(siteDir, "/") {
+				siteDir = path.Join(constant.DataDir, dir.(string))
+			}
+			req.Params["WEBSITE_DIR"] = siteDir
+			_ = settingRepo.Create("WEBSITE_DIR", siteDir)
 		}
 	}
 	for key := range req.Params {
@@ -864,7 +881,12 @@ func (a AppService) SyncAppListFromRemote(taskID string) (err error) {
 
 		transport := xpack.LoadRequestTransport()
 		baseRemoteUrl := fmt.Sprintf("%s/%s/1panel", global.CONF.System.AppRepo, global.CONF.System.Mode)
-		appsMap := getApps(oldApps, list.Apps)
+
+		setting, err := NewISettingService().GetSettingInfo()
+		if err != nil {
+			return err
+		}
+		appsMap := getApps(oldApps, list.Apps, setting.SystemVersion, t)
 
 		t.LogStart(i18n.GetMsgByKey("SyncAppDetail"))
 		for _, l := range list.Apps {
@@ -1066,4 +1088,16 @@ func (a AppService) SyncAppListFromRemote(taskID string) (err error) {
 	}()
 
 	return nil
+}
+
+func (a AppService) UpdateAppstoreConfig(req request.AppstoreUpdate) error {
+	settingService := NewISettingService()
+	return settingService.Update("AppDefaultDomain", req.DefaultDomain)
+}
+
+func (a AppService) GetAppstoreConfig() (*response.AppstoreConfig, error) {
+	defaultDomain, _ := settingRepo.Get(settingRepo.WithByKey("AppDefaultDomain"))
+	res := &response.AppstoreConfig{}
+	res.DefaultDomain = defaultDomain.Value
+	return res, nil
 }

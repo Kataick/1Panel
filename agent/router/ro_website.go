@@ -39,11 +39,6 @@ func (a *WebsiteRouter) InitRouter(Router *gin.RouterGroup) {
 		websiteRouter.GET("/:id/https", baseApi.GetHTTPSConfig)
 		websiteRouter.POST("/:id/https", baseApi.UpdateHTTPSConfig)
 
-		websiteRouter.GET("/php/config/:id", baseApi.GetWebsitePHPConfig)
-		websiteRouter.POST("/php/config", baseApi.UpdateWebsitePHPConfig)
-		websiteRouter.POST("/php/update", baseApi.UpdatePHPFile)
-		websiteRouter.POST("/php/version", baseApi.ChangePHPVersion)
-
 		websiteRouter.POST("/rewrite", baseApi.GetRewriteConfig)
 		websiteRouter.POST("/rewrite/update", baseApi.UpdateRewriteConfig)
 
@@ -54,6 +49,8 @@ func (a *WebsiteRouter) InitRouter(Router *gin.RouterGroup) {
 		websiteRouter.POST("/proxies", baseApi.GetProxyConfig)
 		websiteRouter.POST("/proxies/update", baseApi.UpdateProxyConfig)
 		websiteRouter.POST("/proxies/file", baseApi.UpdateProxyConfigFile)
+		websiteRouter.POST("/proxy/config", baseApi.UpdateProxyCache)
+		websiteRouter.GET("/proxy/config/:id", baseApi.GetProxyCache)
 
 		websiteRouter.POST("/auths", baseApi.GetAuthConfig)
 		websiteRouter.POST("/auths/update", baseApi.UpdateAuthConfig)
@@ -75,5 +72,10 @@ func (a *WebsiteRouter) InitRouter(Router *gin.RouterGroup) {
 		websiteRouter.POST("/lbs/del", baseApi.DeleteLoadBalance)
 		websiteRouter.POST("/lbs/update", baseApi.UpdateLoadBalance)
 		websiteRouter.POST("/lbs/file", baseApi.UpdateLoadBalanceFile)
+
+		websiteRouter.POST("/php/version", baseApi.ChangePHPVersion)
+
+		websiteRouter.POST("/realip/config", baseApi.SetRealIPConfig)
+		websiteRouter.GET("/realip/config/:id", baseApi.GetRealIPConfig)
 	}
 }

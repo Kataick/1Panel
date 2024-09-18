@@ -14,7 +14,7 @@
                     {{ $t('runtime.create') }}
                 </el-button>
 
-                <el-button @click="openExtensions">
+                <el-button type="primary" plain @click="openExtensions">
                     {{ $t('php.extensions') }}
                 </el-button>
 
@@ -50,8 +50,15 @@
                             <span>{{ $t('runtime.' + toLowerCase(row.resource)) }}</span>
                         </template>
                     </el-table-column>
-                    <el-table-column :label="$t('runtime.version')" prop="version"></el-table-column>
+                    <el-table-column :label="$t('runtime.version')" prop="version">
+                        <template #default="{ row }">{{ row.params['PHP_VERSION'] }}</template>
+                    </el-table-column>
                     <el-table-column :label="$t('runtime.image')" prop="image" show-overflow-tooltip></el-table-column>
+                    <el-table-column :label="$t('commons.table.port')" prop="port">
+                        <template #default="{ row }">
+                            {{ row.port }}
+                        </template>
+                    </el-table-column>
                     <el-table-column :label="$t('commons.table.status')" prop="status">
                         <template #default="{ row }">
                             <el-popover
@@ -86,8 +93,8 @@
                         fix
                     />
                     <fu-table-operations
-                        :ellipsis="10"
-                        width="120px"
+                        :ellipsis="5"
+                        width="300px"
                         :buttons="buttons"
                         :label="$t('commons.table.operate')"
                         fixed="right"
@@ -102,24 +109,30 @@
         <Log ref="logRef" @close="search" />
         <Extensions ref="extensionsRef" @close="search" />
         <AppResources ref="checkRef" @close="search" />
+        <ExtManagement ref="extManagementRef" @close="search" />
+        <ComposeLogs ref="composeLogRef" />
+        <Config ref="configRef" />
     </div>
 </template>
 
 <script setup lang="ts">
 import { onMounted, onUnmounted, reactive, ref } from 'vue';
 import { Runtime } from '@/api/interface/runtime';
-import { DeleteRuntime, RuntimeDeleteCheck, SearchRuntimes } from '@/api/modules/runtime';
+import { DeleteRuntime, OperateRuntime, RuntimeDeleteCheck, SearchRuntimes } from '@/api/modules/runtime';
 import { dateFormat, toLowerCase } from '@/utils/util';
-import CreateRuntime from '@/views/website/runtime/php/create/index.vue';
-import Status from '@/components/status/index.vue';
-import i18n from '@/lang';
-import RouterMenu from '../index.vue';
-import Log from '@/components/log-dialog/index.vue';
-import Extensions from './extensions/index.vue';
-import AppResources from '@/views/website/runtime/php/check/index.vue';
 import { ElMessageBox } from 'element-plus';
 import { containerPrune } from '@/api/modules/container';
 import { MsgSuccess } from '@/utils/message';
+import i18n from '@/lang';
+import ExtManagement from './extension-management/index.vue';
+import Extensions from './extension-template/index.vue';
+import AppResources from '@/views/website/runtime/php/check/index.vue';
+import CreateRuntime from '@/views/website/runtime/php/create/index.vue';
+import Status from '@/components/status/index.vue';
+import RouterMenu from '../index.vue';
+import Log from '@/components/log-dialog/index.vue';
+import ComposeLogs from '@/components/compose-log/index.vue';
+import Config from '@/views/website/runtime/php/config/index.vue';
 
 const paginationConfig = reactive({
     cacheSizeKey: 'runtime-page-size',
@@ -137,14 +150,69 @@ let timer: NodeJS.Timer | null = null;
 const opRef = ref();
 const logRef = ref();
 const extensionsRef = ref();
-
+const extManagementRef = ref();
 const checkRef = ref();
+const createRef = ref();
+const loading = ref(false);
+const items = ref<Runtime.RuntimeDTO[]>([]);
+const composeLogRef = ref();
+const configRef = ref();
 
 const buttons = [
+    {
+        label: i18n.global.t('runtime.extension'),
+        click: function (row: Runtime.Runtime) {
+            openExtensionsManagement(row);
+        },
+        disabled: function (row: Runtime.Runtime) {
+            return row.status != 'running';
+        },
+    },
+    {
+        label: i18n.global.t('container.stop'),
+        click: function (row: Runtime.Runtime) {
+            operateRuntime('down', row.id);
+        },
+        disabled: function (row: Runtime.Runtime) {
+            return row.status === 'recreating' || row.status === 'stopped' || row.status === 'building';
+        },
+    },
+    {
+        label: i18n.global.t('container.start'),
+        click: function (row: Runtime.Runtime) {
+            operateRuntime('up', row.id);
+        },
+        disabled: function (row: Runtime.Runtime) {
+            return (
+                row.status === 'starting' ||
+                row.status === 'recreating' ||
+                row.status === 'running' ||
+                row.status === 'building'
+            );
+        },
+    },
+    {
+        label: i18n.global.t('container.restart'),
+        click: function (row: Runtime.Runtime) {
+            operateRuntime('restart', row.id);
+        },
+        disabled: function (row: Runtime.Runtime) {
+            return row.status === 'recreating' || row.status === 'building';
+        },
+    },
     {
         label: i18n.global.t('commons.button.edit'),
         click: function (row: Runtime.Runtime) {
             openDetail(row);
+        },
+        disabled: function (row: Runtime.Runtime) {
+            return row.status === 'building';
+        },
+    },
+    {
+        label: i18n.global.t('menu.config'),
+        click: function (row: Runtime.Runtime) {
+            openConfig(row);
         },
         disabled: function (row: Runtime.Runtime) {
             return row.status === 'building';
@@ -160,9 +228,6 @@ const buttons = [
         },
     },
 ];
-const loading = ref(false);
-const items = ref<Runtime.RuntimeDTO[]>([]);
-const createRef = ref();
 
 const search = async () => {
     req.page = paginationConfig.currentPage;
@@ -186,16 +251,28 @@ const openDetail = (row: Runtime.Runtime) => {
     createRef.value.acceptParams({ type: row.type, mode: 'edit', id: row.id, appID: row.appID });
 };
 
+const openConfig = (row: Runtime.Runtime) => {
+    configRef.value.acceptParams(row);
+};
+
 const openLog = (row: Runtime.RuntimeDTO) => {
-    logRef.value.acceptParams({ id: row.id, type: 'php', tail: row.status == 'building' });
+    if (row.status == 'running') {
+        composeLogRef.value.acceptParams({ compose: row.path + '/docker-compose.yml', resource: row.name });
+    } else {
+        logRef.value.acceptParams({ id: row.id, type: 'php', tail: row.status == 'building', heightDiff: 220 });
+    }
 };
 
 const openCreateLog = (id: number) => {
-    logRef.value.acceptParams({ id: id, type: 'php', tail: true });
+    logRef.value.acceptParams({ id: id, type: 'php', tail: true, heightDiff: 220 });
 };
 
 const openExtensions = () => {
     extensionsRef.value.acceptParams();
+};
+
+const openExtensionsManagement = (row: Runtime.Runtime) => {
+    extManagementRef.value.acceptParams(row);
 };
 
 const openDelete = async (row: Runtime.Runtime) => {
@@ -216,6 +293,28 @@ const openDelete = async (row: Runtime.Runtime) => {
             });
         }
     });
+};
+
+const operateRuntime = async (operate: string, ID: number) => {
+    try {
+        const action = await ElMessageBox.confirm(
+            i18n.global.t('runtime.operatorHelper', [i18n.global.t('commons.operate.' + operate)]),
+            i18n.global.t('commons.operate.' + operate),
+            {
+                confirmButtonText: i18n.global.t('commons.button.confirm'),
+                cancelButtonText: i18n.global.t('commons.button.cancel'),
+                type: 'info',
+            },
+        );
+        if (action === 'confirm') {
+            loading.value = true;
+            await OperateRuntime({ operate: operate, ID: ID });
+            search();
+        }
+    } catch (error) {
+    } finally {
+        loading.value = false;
+    }
 };
 
 const onOpenBuildCache = () => {

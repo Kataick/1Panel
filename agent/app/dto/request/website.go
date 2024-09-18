@@ -162,6 +162,7 @@ type WebsiteHTTPSOp struct {
 	Algorithm       string   `json:"algorithm"`
 	Hsts            bool     `json:"hsts"`
 	HttpsPorts      []int    `json:"httpsPorts"`
+	Http3           bool     `json:"http3"`
 }
 
 type WebsiteNginxUpdate struct {
@@ -181,24 +182,9 @@ type WebsiteDefaultUpdate struct {
 	ID uint `json:"id"`
 }
 
-type WebsitePHPConfigUpdate struct {
-	ID               uint              `json:"id" validate:"required"`
-	Params           map[string]string `json:"params"`
-	Scope            string            `json:"scope" validate:"required"`
-	DisableFunctions []string          `json:"disableFunctions"`
-	UploadMaxSize    string            `json:"uploadMaxSize"`
-}
-
-type WebsitePHPFileUpdate struct {
-	ID      uint   `json:"id" validate:"required"`
-	Type    string `json:"type" validate:"required"`
-	Content string `json:"content" validate:"required"`
-}
-
 type WebsitePHPVersionReq struct {
-	WebsiteID    uint `json:"websiteID" validate:"required"`
-	RuntimeID    uint `json:"runtimeID" validate:"required"`
-	RetainConfig bool `json:"retainConfig" `
+	WebsiteID uint `json:"websiteID" validate:"required"`
+	RuntimeID uint `json:"runtimeID"`
 }
 
 type WebsiteUpdateDir struct {
@@ -280,4 +266,12 @@ type WebsiteLBUpdateFile struct {
 	WebsiteID uint   `json:"websiteID" validate:"required"`
 	Name      string `json:"name" validate:"required"`
 	Content   string `json:"content" validate:"required"`
+}
+
+type WebsiteRealIP struct {
+	WebsiteID uint   `json:"websiteID" validate:"required"`
+	Open      bool   `json:"open"`
+	IPFrom    string `json:"ipFrom"`
+	IPHeader  string `json:"ipHeader"`
+	IPOther   string `json:"ipOther"`
 }

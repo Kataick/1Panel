@@ -16,7 +16,7 @@ import (
 )
 
 var AddTable = &gormigrate.Migration{
-	ID: "20240722-add-table",
+	ID: "20240903-add-table",
 	Migrate: func(tx *gorm.DB) error {
 		return tx.AutoMigrate(
 			&model.AppDetail{},
@@ -54,6 +54,7 @@ var AddTable = &gormigrate.Migration{
 			&model.WebsiteDnsAccount{},
 			&model.WebsiteDomain{},
 			&model.WebsiteSSL{},
+			&model.Task{},
 		)
 	},
 }

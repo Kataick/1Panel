@@ -122,4 +122,53 @@ export namespace Runtime {
     export interface PHPExtensionsDelete {
         id: number;
     }
+
+    export interface PHPExtensionsRes {
+        extensions: string[];
+        supportExtensions: SupportExtension[];
+    }
+
+    export interface SupportExtension {
+        name: string;
+        description: string;
+        installed: boolean;
+        check: string;
+        versions: string[];
+    }
+
+    export interface PHPExtensionInstall {
+        name: string;
+        id: number;
+        taskID?: string;
+    }
+
+    export interface PHPConfig {
+        params: any;
+        disableFunctions: string[];
+        uploadMaxSize: string;
+    }
+
+    export interface PHPConfigUpdate {
+        id: number;
+        params?: any;
+        disableFunctions?: string[];
+        scope: string;
+        uploadMaxSize?: string;
+    }
+
+    export interface PHPUpdate {
+        id: number;
+        content: string;
+        type: string;
+    }
+
+    export interface PHPFileReq {
+        id: number;
+        type: string;
+    }
+
+    export interface FPMConfig {
+        id: number;
+        params: any;
+    }
 }

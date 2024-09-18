@@ -57,3 +57,17 @@ type NodeModule struct {
 	License     string `json:"license"`
 	Description string `json:"description"`
 }
+
+type SupportExtension struct {
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	Installed   bool     `json:"installed"`
+	Check       string   `json:"check"`
+	Versions    []string `json:"versions"`
+	File        string   `json:"file"`
+}
+
+type PHPExtensionRes struct {
+	Extensions        []string           `json:"extensions"`
+	SupportExtensions []SupportExtension `json:"supportExtensions"`
+}

@@ -5,6 +5,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"github.com/1Panel-dev/1Panel/agent/utils/nginx"
+	"github.com/1Panel-dev/1Panel/agent/utils/nginx/parser"
 	"log"
 	"math"
 	"net/http"
@@ -22,7 +24,6 @@ import (
 	"github.com/docker/docker/api/types"
 
 	httpUtil "github.com/1Panel-dev/1Panel/agent/utils/http"
-	"github.com/1Panel-dev/1Panel/agent/utils/xpack"
 	"github.com/docker/docker/api/types/container"
 
 	"github.com/1Panel-dev/1Panel/agent/utils/cmd"
@@ -346,12 +347,11 @@ func deleteAppInstall(deleteReq request.AppInstallDelete) error {
 			}
 			if deleteReq.DeleteImage {
 				delImageStr := i18n.GetMsgByKey("TaskDelete") + i18n.GetMsgByKey("Image")
-				projectName := strings.ToLower(install.Name)
 				content, err := op.GetContent(install.GetEnvPath())
 				if err != nil {
 					return err
 				}
-				images, err := composeV2.GetDockerComposeImages(projectName, content, []byte(install.DockerCompose))
+				images, err := composeV2.GetDockerComposeImagesV2(content, []byte(install.DockerCompose))
 				if err != nil {
 					return err
 				}
@@ -404,25 +404,26 @@ func deleteAppInstall(deleteReq request.AppInstallDelete) error {
 
 		switch install.App.Key {
 		case constant.AppOpenresty:
-			websites, _ := websiteRepo.List()
-			for _, website := range websites {
-				if website.AppInstallID > 0 {
-					websiteAppInstall, _ := appInstallRepo.GetFirst(commonRepo.WithByID(website.AppInstallID))
-					if websiteAppInstall.AppId > 0 {
-						websiteApp, _ := appRepo.GetFirst(commonRepo.WithByID(websiteAppInstall.AppId))
-						if websiteApp.Type == constant.RuntimePHP {
-							go func() {
-								_, _ = compose.Down(websiteAppInstall.GetComposePath())
-								_ = op.DeleteDir(websiteAppInstall.GetPath())
-							}()
-							_ = appInstallRepo.Delete(ctx, websiteAppInstall)
-						}
-					}
-				}
-			}
-			_ = websiteRepo.DeleteAll(ctx)
-			_ = websiteDomainRepo.DeleteAll(ctx)
-			xpack.RemoveTamper("")
+			//TODO 删除 Openresty 不再删除网站
+			//websites, _ := websiteRepo.List()
+			//for _, website := range websites {
+			//	if website.AppInstallID > 0 {
+			//		websiteAppInstall, _ := appInstallRepo.GetFirst(commonRepo.WithByID(website.AppInstallID))
+			//		if websiteAppInstall.AppId > 0 {
+			//			websiteApp, _ := appRepo.GetFirst(commonRepo.WithByID(websiteAppInstall.AppId))
+			//			if websiteApp.Type == constant.RuntimePHP {
+			//				go func() {
+			//					_, _ = compose.Down(websiteAppInstall.GetComposePath())
+			//					_ = op.DeleteDir(websiteAppInstall.GetPath())
+			//				}()
+			//				_ = appInstallRepo.Delete(ctx, websiteAppInstall)
+			//			}
+			//		}
+			//	}
+			//}
+			//_ = websiteRepo.DeleteAll(ctx)
+			//_ = websiteDomainRepo.DeleteAll(ctx)
+			//xpack.RemoveTamper("")
 		case constant.AppMysql, constant.AppMariaDB:
 			_ = mysqlRepo.Delete(ctx, mysqlRepo.WithByMysqlName(install.Name))
 		case constant.AppPostgresql:
@@ -448,7 +449,7 @@ func deleteAppInstall(deleteReq request.AppInstallDelete) error {
 	}
 	uninstallTask.AddSubTask(task.GetTaskName(install.Name, task.TaskUninstall, task.TaskScopeApp), uninstall, nil)
 	go func() {
-		if err := uninstallTask.Execute(); err != nil {
+		if err := uninstallTask.Execute(); err != nil && !deleteReq.ForceDelete {
 			install.Status = constant.Error
 			_ = appInstallRepo.Save(context.Background(), &install)
 		}
@@ -615,8 +616,7 @@ func upgradeInstall(req request.AppInstallUpgrade) error {
 			return err
 		}
 		if req.PullImage {
-			projectName := strings.ToLower(install.Name)
-			images, err := composeV2.GetDockerComposeImages(projectName, content, []byte(detail.DockerCompose))
+			images, err := composeV2.GetDockerComposeImagesV2(content, []byte(detail.DockerCompose))
 			if err != nil {
 				return err
 			}
@@ -674,6 +674,63 @@ func upgradeInstall(req request.AppInstallUpgrade) error {
 		}
 		envParams := make(map[string]string, len(envs))
 		handleMap(envs, envParams)
+		if install.App.Key == "openresty" && install.App.Resource == "remote" && !common.CompareVersion(install.Version, "1.25.3.2-0-1") {
+			t.Log(i18n.GetMsgByKey("MoveSiteDir"))
+			siteDir := path.Join(constant.DataDir, "www")
+			envParams["WEBSITE_DIR"] = siteDir
+			oldSiteDir := path.Join(install.GetPath(), "www")
+			t.Log(i18n.GetWithName("MoveSiteToDir", siteDir))
+			if err := fileOp.CopyDir(oldSiteDir, constant.DataDir); err != nil {
+				t.Log(i18n.GetMsgByKey("ErrMoveSiteDir"))
+				return err
+			}
+			newConfDir := path.Join(constant.DataDir, "www", "conf.d")
+			_ = fileOp.CreateDir(newConfDir, 0644)
+			oldConfDir := path.Join(install.GetPath(), "conf/conf.d")
+			items, err := os.ReadDir(oldConfDir)
+			if err != nil {
+				return err
+			}
+			for _, item := range items {
+				itemPath := path.Join(oldConfDir, item.Name())
+				if item.IsDir() {
+					_ = fileOp.Mv(itemPath, newConfDir)
+				}
+				if item.Name() != "default.conf" && item.Name() != "00.default.conf" {
+					_ = fileOp.Mv(itemPath, newConfDir)
+				}
+			}
+			nginxConfPath := path.Join(install.GetPath(), "conf", "nginx.conf")
+			parse, err := parser.NewParser(nginxConfPath)
+			if err != nil {
+				return err
+			}
+			config, err := parse.Parse()
+			if err != nil {
+				return err
+			}
+			config.FilePath = nginxConfPath
+			httpDirective := config.FindHttp()
+			httpDirective.UpdateDirective("include", []string{"/usr/local/openresty/nginx/conf/default/*.conf"})
+
+			if err = nginx.WriteConfig(config, nginx.IndentedStyle); err != nil {
+				return buserr.WithErr(constant.ErrUpdateBuWebsite, err)
+			}
+			t.Log(i18n.GetMsgByKey("DeleteRuntimePHP"))
+			_ = fileOp.DeleteDir(path.Join(constant.RuntimeDir, "php"))
+			websites, _ := websiteRepo.List(commonRepo.WithByType("runtime"))
+			for _, website := range websites {
+				runtime, _ := runtimeRepo.GetFirst(commonRepo.WithByID(website.RuntimeID))
+				if runtime != nil && runtime.Type == "php" {
+					website.Type = constant.Static
+					website.RuntimeID = 0
+					_ = websiteRepo.SaveWithoutCtx(&website)
+				}
+			}
+			_ = runtimeRepo.DeleteBy(commonRepo.WithByType("php"))
+			t.Log(i18n.GetMsgByKey("MoveSiteDirSuccess"))
+		}
+
 		if err = env.Write(envParams, install.GetEnvPath()); err != nil {
 			return err
 		}
@@ -719,7 +776,7 @@ func upgradeInstall(req request.AppInstallUpgrade) error {
 			existInstall, _ := appInstallRepo.GetFirst(commonRepo.WithByID(req.InstallID))
 			if existInstall.ID > 0 && existInstall.Status != constant.Running {
 				existInstall.Status = constant.UpgradeErr
-				existInstall.Message = upErr.Error()
+				existInstall.Message = err.Error()
 				_ = appInstallRepo.Save(context.Background(), &existInstall)
 			}
 		}
@@ -1091,19 +1148,24 @@ func getAppDetails(details []model.AppDetail, versions []dto.AppConfigVersion) m
 	return appDetails
 }
 
-func getApps(oldApps []model.App, items []dto.AppDefine) map[string]model.App {
+func getApps(oldApps []model.App, items []dto.AppDefine, systemVersion string, task *task.Task) map[string]model.App {
 	apps := make(map[string]model.App, len(oldApps))
 	for _, old := range oldApps {
 		old.Status = constant.AppTakeDown
 		apps[old.Key] = old
 	}
 	for _, item := range items {
+		if item.AppProperty.Version > 0 && common.CompareVersion(strconv.FormatFloat(item.AppProperty.Version, 'f', -1, 64), systemVersion) {
+			task.Log(i18n.GetWithName("AppVersionNotMatch", item.Name))
+			continue
+		}
 		config := item.AppProperty
 		key := config.Key
 		app, ok := apps[key]
 		if !ok {
 			app = model.App{}
 		}
+		app.RequiredPanelVersion = config.Version
 		app.Resource = constant.AppResourceRemote
 		app.Name = item.Name
 		app.Limit = config.Limit

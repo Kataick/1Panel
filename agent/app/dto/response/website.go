@@ -13,6 +13,7 @@ type WebsiteDTO struct {
 	SitePath      string `json:"sitePath"`
 	AppName       string `json:"appName"`
 	RuntimeName   string `json:"runtimeName"`
+	RuntimeType   string `json:"runtimeType"`
 	SiteDir       string `json:"siteDir"`
 }
 
@@ -63,6 +64,7 @@ type WebsiteHTTPS struct {
 	Hsts        bool             `json:"hsts"`
 	HttpsPorts  []int            `json:"httpsPorts"`
 	HttpsPort   string           `json:"httpsPort"`
+	Http3       bool             `json:"http3"`
 }
 
 type WebsiteLog struct {
@@ -91,4 +93,12 @@ type WebsiteDirConfig struct {
 
 type WebsiteHtmlRes struct {
 	Content string `json:"content"`
+}
+
+type WebsiteRealIP struct {
+	WebsiteID uint   `json:"websiteID" validate:"required"`
+	Open      bool   `json:"open"`
+	IPFrom    string `json:"ipFrom"`
+	IPHeader  string `json:"ipHeader"`
+	IPOther   string `json:"ipOther"`
 }

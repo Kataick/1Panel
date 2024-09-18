@@ -373,70 +373,6 @@ func (b *BaseApi) ChangeDefaultServer(c *gin.Context) {
 	helper.SuccessWithData(c, nil)
 }
 
-// @Tags Website
-// @Summary Load website php conf
-// @Description 获取网站 php 配置
-// @Accept json
-// @Param id path integer true "request"
-// @Success 200 {object} response.PHPConfig
-// @Security ApiKeyAuth
-// @Router /websites/php/config/:id [get]
-func (b *BaseApi) GetWebsitePHPConfig(c *gin.Context) {
-	id, err := helper.GetParamID(c)
-	if err != nil {
-		helper.ErrorWithDetail(c, constant.CodeErrBadRequest, constant.ErrTypeInternalServer, nil)
-		return
-	}
-	data, err := websiteService.GetPHPConfig(id)
-	if err != nil {
-		helper.ErrorWithDetail(c, constant.CodeErrInternalServer, constant.ErrTypeInternalServer, err)
-		return
-	}
-	helper.SuccessWithData(c, data)
-}
-
-// @Tags Website PHP
-// @Summary Update website php conf
-// @Description 更新 网站 PHP 配置
-// @Accept json
-// @Param request body request.WebsitePHPConfigUpdate true "request"
-// @Success 200
-// @Security ApiKeyAuth
-// @Router /websites/php/config [post]
-// @x-panel-log {"bodyKeys":["id"],"paramKeys":[],"BeforeFunctions":[{"input_column":"id","input_value":"id","isList":false,"db":"websites","output_column":"primary_domain","output_value":"domain"}],"formatZH":"[domain] PHP 配置修改","formatEN":"[domain] PHP conf update"}
-func (b *BaseApi) UpdateWebsitePHPConfig(c *gin.Context) {
-	var req request.WebsitePHPConfigUpdate
-	if err := helper.CheckBindAndValidate(&req, c); err != nil {
-		return
-	}
-	if err := websiteService.UpdatePHPConfig(req); err != nil {
-		helper.ErrorWithDetail(c, constant.CodeErrInternalServer, constant.ErrTypeInternalServer, err)
-		return
-	}
-	helper.SuccessWithData(c, nil)
-}
-
-// @Tags Website PHP
-// @Summary Update php conf
-// @Description 更新 php 配置文件
-// @Accept json
-// @Param request body request.WebsitePHPFileUpdate true "request"
-// @Success 200
-// @Security ApiKeyAuth
-// @Router /websites/php/update [post]
-// @x-panel-log {"bodyKeys":["websiteId"],"paramKeys":[],"BeforeFunctions":[{"input_column":"id","input_value":"websiteId","isList":false,"db":"websites","output_column":"primary_domain","output_value":"domain"}],"formatZH":"php 配置修改 [domain]","formatEN":"Nginx conf update [domain]"}
-func (b *BaseApi) UpdatePHPFile(c *gin.Context) {
-	var req request.WebsitePHPFileUpdate
-	if err := helper.CheckBindAndValidate(&req, c); err != nil {
-		return
-	}
-	if err := websiteService.UpdatePHPConfigFile(req); err != nil {
-		helper.ErrorWithDetail(c, constant.CodeErrInternalServer, constant.ErrTypeInternalServer, err)
-		return
-	}
-	helper.SuccessWithData(c, nil)
-}
-
 // @Tags Website PHP
 // @Summary Update php version
 // @Description 变更 php 版本
@@ -968,4 +904,89 @@ func (b *BaseApi) ChangeWebsiteGroup(c *gin.Context) {
 		return
 	}
 	helper.SuccessWithOutData(c)
+}
+
+// @Tags Website
+// @Summary update website proxy cache config
+// @Description 更新网站反代缓存配置
+// @Accept json
+// @Param request body request.NginxProxyCacheUpdate true "request"
+// @Success 200
+// @Security ApiKeyAuth
+// @Router /websites/proxy/config [post]
+func (b *BaseApi) UpdateProxyCache(c *gin.Context) {
+	var req request.NginxProxyCacheUpdate
+	if err := helper.CheckBindAndValidate(&req, c); err != nil {
+		return
+	}
+	if err := websiteService.UpdateProxyCache(req); err != nil {
+		helper.ErrorWithDetail(c, constant.CodeErrInternalServer, constant.ErrTypeInternalServer, err)
+		return
+	}
+	helper.SuccessWithOutData(c)
+}
+
+// @Summary Get website proxy cache config
+// @Description 获取网站反代缓存配置
+// @Accept json
+// @Param id path int true "id"
+// @Success 200 {object} response.NginxProxyCache
+// @Security ApiKeyAuth
+// @Router /websites/proxy/config/{id} [get]
+func (b *BaseApi) GetProxyCache(c *gin.Context) {
+	id, err := helper.GetParamID(c)
+	if err != nil {
+		helper.ErrorWithDetail(c, constant.CodeErrBadRequest, constant.ErrTypeInternalServer, nil)
+		return
+	}
+	res, err := websiteService.GetProxyCache(id)
+	if err != nil {
+		helper.ErrorWithDetail(c, constant.CodeErrInternalServer, constant.ErrTypeInternalServer, err)
+		return
+	}
+	helper.SuccessWithData(c, res)
+}
+
+// @Tags Website
+// @Summary Set Real IP
+// @Description 设置真实IP
+// @Accept json
+// @Param request body request.WebsiteRealIP true "request"
+// @Success 200
+// @Security ApiKeyAuth
+// @Router /websites/realip [post]
+// @x-panel-log {"bodyKeys":["websiteID"],"paramKeys":[],"BeforeFunctions":[{"input_column":"id","input_value":"websiteID","isList":false,"db":"websites","output_column":"primary_domain","output_value":"domain"}],"formatZH":"修改 [domain] 网站真实IP配置 ","formatEN":"Modify the real IP configuration of [domain] website"}
+func (b *BaseApi) SetRealIPConfig(c *gin.Context) {
+	var req request.WebsiteRealIP
+	if err := helper.CheckBindAndValidate(&req, c); err != nil {
+		return
+	}
+	if err := websiteService.SetRealIPConfig(req); err != nil {
+		helper.ErrorWithDetail(c, constant.CodeErrInternalServer, constant.ErrTypeInternalServer, err)
+		return
+	}
+	helper.SuccessWithOutData(c)
+}
+
+// 写一个调用 GetRealIPConfig 的接口
+// @Tags Website
+// @Summary Get Real IP Config
+// @Description 获取真实 IP 配置
+// @Accept json
+// @Param id path int true "id"
+// @Success 200 {object} response.WebsiteRealIP
+// @Security ApiKeyAuth
+// @Router /websites/realip/config/{id} [get]
+func (b *BaseApi) GetRealIPConfig(c *gin.Context) {
+	id, err := helper.GetParamID(c)
+	if err != nil {
+		helper.ErrorWithDetail(c, constant.CodeErrBadRequest, constant.ErrTypeInternalServer, nil)
+		return
+	}
+	res, err := websiteService.GetRealIPConfig(id)
+	if err != nil {
+		helper.ErrorWithDetail(c, constant.CodeErrInternalServer, constant.ErrTypeInternalServer, err)
+		return
+	}
+	helper.SuccessWithData(c, res)
 }

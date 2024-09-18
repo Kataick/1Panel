@@ -97,6 +97,7 @@ type AppProperty struct {
 	Architectures      []string `json:"architectures"`
 	MemoryRequired     int      `json:"memoryRequired"`
 	GpuSupport         bool     `json:"gpuSupport"`
+	Version            float64  `json:"version"`
 }
 
 type AppConfigVersion struct {
@@ -158,4 +159,10 @@ type DelAppLink struct {
 	Task        *task.Task
 	Install     *model.AppInstall
 	ForceDelete bool
+}
+
+type PHPForm struct {
+	AdditionalProperties struct {
+		FormFields []interface{} `yaml:"formFields"`
+	} `yaml:"additionalProperties"`
 }
