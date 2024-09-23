@@ -30,6 +30,7 @@ type ISnapshotService interface {
 	SearchWithPage(req dto.SearchWithPage) (int64, interface{}, error)
 	LoadSnapshotData() (dto.SnapshotData, error)
 	SnapshotCreate(req dto.SnapshotCreate) error
+	SnapshotReCreate(id uint) error
 	SnapshotRecover(req dto.SnapshotRecover) error
 	SnapshotRollback(req dto.SnapshotRecover) error
 	SnapshotImport(req dto.SnapshotImport) error
@@ -37,7 +38,7 @@ type ISnapshotService interface {
 
 	UpdateDescription(req dto.UpdateDescription) error
 
-	HandleSnapshot(isCronjob bool, req dto.SnapshotCreate, timeNow string, secret string) (string, error)
+	HandleSnapshot(req dto.SnapshotCreate) error
 }
 
 func NewISnapshotService() ISnapshotService {
@@ -321,6 +322,11 @@ func loadApps(fileOp fileUtils.FileOp) ([]dto.DataTree, error) {
 	for i := 0; i < len(data); i++ {
 		if val, ok := appTreeMap[fmt.Sprintf("%s-%s", data[i].Key, data[i].Name)]; ok {
 			data[i].Children = append(data[i].Children, val)
+		}
+	}
+	data = loadAppBackup(data, fileOp)
+	data = loadAppImage(data)
+	return data, nil
 }
 func loadAppBackup(list []dto.DataTree, fileOp fileUtils.FileOp) []dto.DataTree {
 	for i := 0; i < len(list); i++ {
